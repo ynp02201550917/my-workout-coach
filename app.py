@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
 from google import genai
-from google.types import GenerateContentConfig
 import datetime
 
 # --- セキュリティ対策③：パスワード簡易認証 ---
@@ -52,7 +51,7 @@ if check_password():
             history_text = "\n".join([f"・{r['workout_date']}: {r['volume_details']}" for r in response.data])
             
             prompt = f"ユーザーが今日の筋トレを記録しました：{menu}（{details}）。過去の履歴：\n{history_text}\n進捗を褒めつつ、次回に向けたアドバイスを150文字以内で論理的に述べてください。"
-            ai_res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt, config=GenerateContentConfig(system_instruction="あなたは熱血トレーナーです。"))
+            ai_res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt, config=genai.types.GenerateContentConfig(system_instruction="あなたは熱血トレーナーです。"))
             st.success("DBに保存しました！")
             st.info(ai_res.text)
 
@@ -67,7 +66,7 @@ if check_password():
             supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
             
             prompt = f"今日の{m_type}の内容：{content}。PFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
-            ai_res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt, config=GenerateContentConfig(system_instruction="あなたはスポーツ栄養士です。"))
+            ai_res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt, config=genai.types.GenerateContentConfig(system_instruction="あなたはスポーツ栄養士です。"))
             st.success("DBに保存しました！")
             st.info(ai_res.text)
 
@@ -95,6 +94,6 @@ if check_password():
                 ai_res = ai_client.models.generate_content(
                     model='gemini-1.5-flash', 
                     contents=prompt, 
-                    config=GenerateContentConfig(system_instruction="あなたは科学的根拠を重視するパーソナルトレーナーです。")
+                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視するパーソナルトレーナーです。")
                 )
             st.write(ai_res.text)
