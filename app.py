@@ -30,6 +30,22 @@ if check_password():
     # スマホ対応UIの構築
     st.title("🏋️‍♂️ 専属AIコーチ（スマホ版）")
     
+    # --- 追加：ユーザープロフィール入力エリア（アコーディオンで開閉可能） ---
+    with st.expander("👤 ユーザープロフィール設定（AI分析用）", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            age = st.number_input("年齢", min_value=0, max_value=120, value=31, step=1)
+        with col2:
+            height = st.number_input("身長 (cm)", min_value=100.0, max_value=250.0, value=170.0, step=0.1)
+        with col3:
+            weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0, value=61.8, step=0.1)
+            
+        purpose = st.selectbox("トレーニングの目的", ["引き締め（ちょいムキ）", "バルクアップ（筋肥大）", "ダイエット（減量）", "現状維持"])
+        activity = st.selectbox("日々の活動量", ["低い（デスクワーク中心）", "普通（立ち仕事・軽い運動）", "高い（活発な肉体労働・毎日ハードな運動）"])
+
+    # ユーザー情報をプロンプト用テキストにまとめる
+    user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 目的: {purpose}, 活動量: {activity}"
+
     # タブで「記録」と「次回の提案」を切り替え（スマホで押しやすい）
     tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
 
@@ -50,7 +66,7 @@ if check_password():
             response = supabase.table("workout_logs").select("*").eq("menu_name", menu).order("workout_date", desc=True).limit(5).execute()
             history_text = "\n".join([f"・{r['workout_date']}: {r['volume_details']}" for r in response.data])
             
-            prompt = f"ユーザーが今日の筋トレを記録しました：{menu}（{details}）。過去の履歴：\n{history_text}\n進捗を褒めつつ、次回に向けたアドバイスを150文字以内で論理的に述べてください。"
+            prompt = f"{user_profile_text}\nユーザーが今日の筋トレを記録しました：{menu}（{details}）。過去の履歴：\n{history_text}\nユーザーの体型や目的に合わせて進捗を褒めつつ、次回に向けたアドバイスを150文字以内で論理的に述べてください。"
             ai_res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=genai.types.GenerateContentConfig(system_instruction="あなたは熱血トレーナーです。"))
             st.success("DBに保存しました！")
             st.info(ai_res.text)
@@ -65,16 +81,15 @@ if check_password():
         if st.button("食事を記録＆アドバイスを貰う"):
             if content:
                 try:
-                    # 画面に状況を表示
                     st.write("📡 Supabaseに接続を試みています...")
                     
-                    # 1. Supabaseへ保存（ここでエラーが発生中）
+                    # 1. Supabaseへ保存
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
                     st.success("DBに保存しました！")
                     
-                    # 2. Geminiでアドバイス生成（保存が成功したらここが進みます）
+                    # 2. Geminiでアドバイス生成
                     with st.spinner("AIコーチが食事内容を分析中..."):
-                        prompt = f"今日の{m_type}の内容：{content}。PFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
+                        prompt = f"{user_profile_text}\n今日の{m_type}の内容：{content}。このユーザーの年齢・体重・目的に対するPFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
                         ai_res = ai_client.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=prompt, 
@@ -83,12 +98,11 @@ if check_password():
                     st.info(ai_res.text)
                     
                 except Exception as e:
-                    # 🔴 伏せられているエラーの「本物の理由」を画面に強制表示する
                     st.error(f"❌ 接続エラーの本当の理由: {str(e)}")
             else:
                 st.warning("食事内容を入力してください。")
 
-    # --- タブ3：次回のメニュー提案（今回の目玉！） ---
+    # --- タブ3：次回のメニュー提案 ---
     with tab3:
         st.subheader("過去のデータから次回のメニューを生成")
         if st.button("AIに次回のメニューを提案してもらう"):
@@ -101,12 +115,14 @@ if check_password():
                 history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
                 
             prompt = f"""
+            {user_profile_text}
+            
             ユーザーの直近のトレーニング履歴は以下の通りです：
             {history_text}
             
             【指示】
-            1. 最後にどの部位をいつ鍛えたかを分析し、超回復の観点から今日（または次回）鍛えるべき最適な「部位」を特定してください。
-            2. その部位の過去の重量・回数を踏まえ、過負荷の原則に従って、今回挑戦すべき「具体的な種目、セット数、目標重量と回数」を3つほど提案してください。
+            1. ユーザーのプロフィール（体重・目的など）を考慮し、最後にどの部位をいつ鍛えたかを分析して超回復の観点から今日（または次回）鍛えるべき最適な「部位」を特定してください。
+            2. その部位の過去の重量・回数、および自重種目の場合は体重を考慮した過負荷の原則に従って、今回挑戦すべき「具体的な種目、セット数、目標重量と回数」を3つほど提案してください。
             """
             with st.spinner("過去のデータをスキャンしてメニューを計算中..."):
                 ai_res = ai_client.models.generate_content(
