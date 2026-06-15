@@ -63,12 +63,30 @@ if check_password():
         content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）")
         
         if st.button("食事を記録＆アドバイスを貰う"):
-            supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
-            
-            prompt = f"今日の{m_type}の内容：{content}。PFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
-            ai_res = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt, config=genai.types.GenerateContentConfig(system_instruction="あなたはスポーツ栄養士です。"))
-            st.success("DBに保存しました！")
-            st.info(ai_res.text)
+            if content:
+                try:
+                    # 画面に状況を表示
+                    st.write("📡 Supabaseに接続を試みています...")
+                    
+                    # 1. Supabaseへ保存（ここでエラーが発生中）
+                    supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
+                    st.success("DBに保存しました！")
+                    
+                    # 2. Geminiでアドバイス生成（保存が成功したらここが進みます）
+                    with st.spinner("AIコーチが食事内容を分析中..."):
+                        prompt = f"今日の{m_type}の内容：{content}。PFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
+                        ai_res = ai_client.models.generate_content(
+                            model='gemini-1.5-flash', 
+                            contents=prompt, 
+                            config=genai.types.GenerateContentConfig(system_instruction="あなたはスポーツ栄養士です。")
+                        )
+                    st.info(ai_res.text)
+                    
+                except Exception as e:
+                    # 🔴 伏せられているエラーの「本物の理由」を画面に強制表示する
+                    st.error(f"❌ 接続エラーの本当の理由: {str(e)}")
+            else:
+                st.warning("食事内容を入力してください。")
 
     # --- タブ3：次回のメニュー提案（今回の目玉！） ---
     with tab3:
