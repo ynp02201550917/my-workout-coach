@@ -30,18 +30,53 @@ if check_password():
     # スマホ対応UIの構築
     st.title("🏋️‍♂️ 専属AIコーチ（スマホ版）")
     
-    # --- 追加：ユーザープロフィール入力エリア（アコーディオンで開閉可能） ---
+    # --- 【アップデート】Supabaseからユーザープロフィールを取得 ---
+    try:
+        profile_res = supabase.table("user_profiles").select("*").eq("id", 1).execute()
+        if profile_res.data:
+            db_profile = profile_res.data[0]
+        else:
+            # 万が一データがない場合のデフォルト値
+            db_profile = {"age": 31, "height": 170.0, "weight": 61.8, "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"}
+    except Exception as e:
+        st.error(f"プロフィール読み込みエラー: {e}")
+        db_profile = {"age": 31, "height": 170.0, "weight": 61.8, "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"}
+
+    # --- ユーザープロフィール入力エリア（アコーディオンで開閉可能） ---
     with st.expander("👤 ユーザープロフィール設定（AI分析用）", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
-            age = st.number_input("年齢", min_value=0, max_value=120, value=31, step=1)
+            # DBから取得した値を value にセット
+            age = st.number_input("年齢", min_value=0, max_value=120, value=int(db_profile["age"]), step=1)
         with col2:
-            height = st.number_input("身長 (cm)", min_value=100.0, max_value=250.0, value=170.0, step=0.1)
+            height = st.number_input("身長 (cm)", min_value=100.0, max_value=250.0, value=float(db_profile["height"]), step=0.1)
         with col3:
-            weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0, value=61.8, step=0.1)
+            weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0, value=float(db_profile["weight"]), step=0.1)
             
-        purpose = st.selectbox("トレーニングの目的", ["引き締め（ちょいムキ）", "バルクアップ（筋肥大）", "ダイエット（減量）", "現状維持"])
-        activity = st.selectbox("日々の活動量", ["低い（デスクワーク中心）", "普通（立ち仕事・軽い運動）", "高い（活発な肉体労働・毎日ハードな運動）"])
+        purpose_options = ["引き締め（ちょいムキ）", "バルクアップ（筋肥大）", "ダイエット（減量）", "現状維持"]
+        activity_options = ["低い（デスクワーク中心）", "普通（立ち仕事・軽い運動）", "高い（活発な肉体労働・毎日ハードな運動）"]
+        
+        # DBに保存されている文字列がリストの何番目にあるかを探して初期選択にする
+        p_index = purpose_options.index(db_profile["purpose"]) if db_profile["purpose"] in purpose_options else 0
+        a_index = activity_options.index(db_profile["activity"]) if db_profile["activity"] in activity_options else 0
+
+        purpose = st.selectbox("トレーニングの目的", purpose_options, index=p_index)
+        activity = st.selectbox("日々の活動量", activity_options, index=a_index)
+        
+        # 保存ボタン
+        if st.button("プロフィールを更新して保存"):
+            updated_data = {
+                "id": 1,
+                "age": age,
+                "height": height,
+                "weight": weight,
+                "purpose": purpose,
+                "activity": activity
+            }
+            # id=1 のデータを上書き(upsert)
+            supabase.table("user_profiles").upsert(updated_data).execute()
+            st.success("プロファイルをSupabaseに保存しました！次回からもこの値が自動で読み込まれます。")
+            st.rerun()
 
     # ユーザー情報をプロンプト用テキストにまとめる
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 目的: {purpose}, 活動量: {activity}"
@@ -58,11 +93,9 @@ if check_password():
         details = st.text_input("回数・セット（例: 80kg 10回 3セット）")
         
         if st.button("筋トレを記録＆送信"):
-            # DBに保存
             data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
             supabase.table("workout_logs").insert(data).execute()
             
-            # 直近の同じ種目のデータを取得してGeminiでフィードバック
             response = supabase.table("workout_logs").select("*").eq("menu_name", menu).order("workout_date", desc=True).limit(5).execute()
             history_text = "\n".join([f"・{r['workout_date']}: {r['volume_details']}" for r in response.data])
             
@@ -83,11 +116,9 @@ if check_password():
                 try:
                     st.write("📡 Supabaseに接続を試みています...")
                     
-                    # 1. Supabaseへ保存
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
                     st.success("DBに保存しました！")
                     
-                    # 2. Geminiでアドバイス生成
                     with st.spinner("AIコーチが食事内容を分析中..."):
                         prompt = f"{user_profile_text}\n今日の{m_type}の内容：{content}。このユーザーの年齢・体重・目的に対するPFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
                         ai_res = ai_client.models.generate_content(
@@ -106,7 +137,6 @@ if check_password():
     with tab3:
         st.subheader("過去のデータから次回のメニューを生成")
         if st.button("AIに次回のメニューを提案してもらう"):
-            # 直近2週間（14件）のトレーニング履歴をDBから全取得
             past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
             
             if past_workouts.data:
