@@ -135,7 +135,14 @@ if check_password():
 
     # --- タブ3：次回のメニュー提案 ---
     with tab3:
-        st.subheader("過去のデータから次回のメニューを生成")
+        st.subheader("過去のデータと要望から次回のメニューを生成")
+        
+        # 💡 追加：ユーザーが自由に要望を入力できるテキストエリア
+        user_request = st.text_area(
+            "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
+            placeholder="特にない場合は空欄のままでOKです"
+        )
+        
         if st.button("AIに次回のメニューを提案してもらう"):
             past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
             
@@ -144,20 +151,25 @@ if check_password():
             else:
                 history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
                 
+            # 💡 アップデート：ユーザーの自由入力をプロンプトに組み込む
             prompt = f"""
             {user_profile_text}
             
             ユーザーの直近のトレーニング履歴は以下の通りです：
             {history_text}
             
+            【ユーザーからの個別要望】
+            {user_request if user_request else "特になし。履歴に基づき最適なメニューを提案してください。"}
+            
             【指示】
-            1. ユーザーのプロフィール（体重・目的など）を考慮し、最後にどの部位をいつ鍛えたかを分析して超回復の観点から今日（または次回）鍛えるべき最適な「部位」を特定してください。
-            2. その部位の過去の重量・回数、および自重種目の場合は体重を考慮した過負荷の原則に従って、今回挑戦すべき「具体的な種目、セット数、目標重量と回数」を3つほど提案してください。
+            1. ユーザーのプロフィールと過去の履歴を考慮し、さらに「ユーザーからの個別要望」が記載されている場合はそれを最優先して、今日（または次回）鍛えるべき最適なメニューを特定してください。
+            2. 過負荷の原則や超回復、およびユーザーのコンディションに配慮し、今回挑戦すべき「具体的な種目、セット数、目標重量と回数」を3つほど提案してください。
             """
-            with st.spinner("過去のデータをスキャンしてメニューを計算中..."):
+            
+            with st.spinner("過去のデータと要望を分析してメニューを計算中..."):
                 ai_res = ai_client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=prompt, 
-                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視するパーソナルトレーナーです。")
+                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。")
                 )
             st.write(ai_res.text)
