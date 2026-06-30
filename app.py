@@ -27,60 +27,75 @@ if check_password():
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # スマホ対応UIの構築
+# スマホ対応UIの構築
     st.title("🏋️‍♂️ 専属AIコーチ（スマホ版）")
     
-    # --- 【アップデート】Supabaseからユーザープロフィールを取得 ---
+    # --- 【アップデート】Supabaseから「最新の」ユーザープロフィールを取得 ---
     try:
-        profile_res = supabase.table("user_profiles").select("*").eq("id", 1).execute()
+        # 作成日時の降順（新しい順）で並び替えて、1件だけ取得する（＝これが常に最新状態）
+        profile_res = supabase.table("user_profiles").select("*").order("created_at", desc=True).limit(1).execute()
         if profile_res.data:
             db_profile = profile_res.data[0]
         else:
-            # 万が一データがない場合のデフォルト値
-            db_profile = {"age": 31, "height": 170.0, "weight": 61.8, "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"}
+            # 初回など、データが1件もない場合のデフォルト値
+            db_profile = {
+                "age": 31, "height": 170.0, "weight": 61.8, 
+                "muscle_mass": 45.0, "fat_percentage": 18.0, 
+                "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"
+            }
     except Exception as e:
         st.error(f"プロフィール読み込みエラー: {e}")
-        db_profile = {"age": 31, "height": 170.0, "weight": 61.8, "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"}
+        db_profile = {
+            "age": 31, "height": 170.0, "weight": 61.8, 
+            "muscle_mass": 45.0, "fat_percentage": 18.0,
+            "purpose": "引き締め（ちょいムキ）", "activity": "低い（デスクワーク中心）"
+        }
 
     # --- ユーザープロフィール入力エリア（アコーディオンで開閉可能） ---
     with st.expander("👤 ユーザープロフィール設定（AI分析用）", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
-            # DBから取得した値を value にセット
             age = st.number_input("年齢", min_value=0, max_value=120, value=int(db_profile["age"]), step=1)
         with col2:
             height = st.number_input("身長 (cm)", min_value=100.0, max_value=250.0, value=float(db_profile["height"]), step=0.1)
         with col3:
             weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0, value=float(db_profile["weight"]), step=0.1)
             
+        # 追加：筋肉量と体脂肪率の入力欄
+        col4, col5 = st.columns(2)
+        with col4:
+            muscle_mass = st.number_input("筋肉量 (kg)", min_value=10.0, max_value=150.0, value=float(db_profile.get("muscle_mass", 45.0)), step=0.1)
+        with col5:
+            fat_percentage = st.number_input("体脂肪率 (%)", min_value=3.0, max_value=50.0, value=float(db_profile.get("fat_percentage", 18.0)), step=0.1)
+            
         purpose_options = ["引き締め（ちょいムキ）", "バルクアップ（筋肥大）", "ダイエット（減量）", "現状維持"]
         activity_options = ["低い（デスクワーク中心）", "普通（立ち仕事・軽い運動）", "高い（活発な肉体労働・毎日ハードな運動）"]
         
-        # DBに保存されている文字列がリストの何番目にあるかを探して初期選択にする
         p_index = purpose_options.index(db_profile["purpose"]) if db_profile["purpose"] in purpose_options else 0
         a_index = activity_options.index(db_profile["activity"]) if db_profile["activity"] in activity_options else 0
 
         purpose = st.selectbox("トレーニングの目的", purpose_options, index=p_index)
         activity = st.selectbox("日々の活動量", activity_options, index=a_index)
         
-        # 保存ボタン
+        # 保存ボタン（upsertではなくinsertに変更して履歴を残す）
         if st.button("プロフィールを更新して保存"):
-            updated_data = {
-                "id": 1,
+            new_history_data = {
                 "age": age,
                 "height": height,
                 "weight": weight,
+                "muscle_mass": muscle_mass,   
+                "fat_percentage": fat_percentage, 
                 "purpose": purpose,
                 "activity": activity
             }
-            # id=1 のデータを上書き(upsert)
-            supabase.table("user_profiles").upsert(updated_data).execute()
-            st.success("プロファイルをSupabaseに保存しました！次回からもこの値が自動で読み込まれます。")
+            # 毎回新しい行として追加することで、過去データがすべて蓄積されます
+            supabase.table("user_profiles").insert(new_history_data).execute()
+            st.success("最新のプロフィールを履歴に保存しました！")
             st.rerun()
 
-    # ユーザー情報をプロンプト用テキストにまとめる
-    user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 目的: {purpose}, 活動量: {activity}"
-
+    # AIに渡すプロンプト用テキストにも筋肉量と体脂肪率を追加
+    user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
+    
     # タブで「記録」と「次回の提案」を切り替え（スマホで押しやすい）
     tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
 
