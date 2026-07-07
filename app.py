@@ -27,17 +27,15 @@ if check_password():
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# スマホ対応UIの構築
+    # スマホ対応UIの構築
     st.title("🏋️‍♂️ 専属AIコーチ（スマホ版）")
     
     # --- 【アップデート】Supabaseから「最新の」ユーザープロフィールを取得 ---
     try:
-        # 作成日時の降順（新しい順）で並び替えて、1件だけ取得する（＝これが常に最新状態）
         profile_res = supabase.table("user_profiles").select("*").order("created_at", desc=True).limit(1).execute()
         if profile_res.data:
             db_profile = profile_res.data[0]
         else:
-            # 初回など、データが1件もない場合のデフォルト値
             db_profile = {
                 "age": 31, "height": 170.0, "weight": 61.8, 
                 "muscle_mass": 45.0, "fat_percentage": 18.0, 
@@ -61,7 +59,6 @@ if check_password():
         with col3:
             weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0, value=float(db_profile["weight"]), step=0.1)
             
-        # 追加：筋肉量と体脂肪率の入力欄
         col4, col5 = st.columns(2)
         with col4:
             muscle_mass = st.number_input("筋肉量 (kg)", min_value=10.0, max_value=150.0, value=float(db_profile.get("muscle_mass", 45.0)), step=0.1)
@@ -77,7 +74,6 @@ if check_password():
         purpose = st.selectbox("トレーニングの目的", purpose_options, index=p_index)
         activity = st.selectbox("日々の活動量", activity_options, index=a_index)
         
-        # 保存ボタン（upsertではなくinsertに変更して履歴を残す）
         if st.button("プロフィールを更新して保存"):
             new_history_data = {
                 "age": age,
@@ -88,18 +84,17 @@ if check_password():
                 "purpose": purpose,
                 "activity": activity
             }
-            # 毎回新しい行として追加することで、過去データがすべて蓄積されます
             supabase.table("user_profiles").insert(new_history_data).execute()
             st.success("最新のプロフィールを履歴に保存しました！")
             st.rerun()
 
-    # AIに渡すプロンプト用テキストにも筋肉量と体脂肪率を追加
+    # AIに渡すプロンプト用テキスト（タブ3の提案機能でのみ使用）
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
     
-    # タブで「記録」と「次回の提案」を切り替え（スマホで押しやすい）
+    # タブ切り替え
     tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
 
-    # --- タブ1：筋トレ記録 ---
+    # --- タブ1：筋トレ記録（DB登録のみにシンプル化） ---
     with tab1:
         st.subheader("今日のトレーニング")
         w_date = st.date_input("日付", datetime.date.today(), key="w_date")
@@ -108,51 +103,34 @@ if check_password():
         details = st.text_input("回数・セット（例: 80kg 10回 3セット）")
         
         if st.button("筋トレを記録＆送信"):
-            data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
-            supabase.table("workout_logs").insert(data).execute()
-            
-            response = supabase.table("workout_logs").select("*").eq("menu_name", menu).order("workout_date", desc=True).limit(5).execute()
-            history_text = "\n".join([f"・{r['workout_date']}: {r['volume_details']}" for r in response.data])
-            
-            prompt = f"{user_profile_text}\nユーザーが今日の筋トレを記録しました：{menu}（{details}）。過去の履歴：\n{history_text}\nユーザーの体型や目的に合わせて進捗を褒めつつ、次回に向けたアドバイスを150文字以内で論理的に述べてください。"
-            ai_res = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=genai.types.GenerateContentConfig(system_instruction="あなたは熱血トレーナーです。"))
-            st.success("DBに保存しました！")
-            st.info(ai_res.text)
+            if menu and details:
+                data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
+                supabase.table("workout_logs").insert(data).execute()
+                st.success(f"💪 {menu} の記録をデータベースに保存しました！")
+            else:
+                st.warning("種目名と回数・セットを入力してください。")
 
-    # --- タブ2：食事記録 ---
+    # --- タブ2：食事記録（DB登録のみにシンプル化） ---
     with tab2:
         st.subheader("食事の記録とアドバイス")
         m_date = st.date_input("日付", datetime.date.today(), key="m_date")
         m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"])
         content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）")
         
-        if st.button("食事を記録＆アドバイスを貰う"):
+        if st.button("食事を記録＆アドバイスを貰う"): # ボタン名はそのままにしています
             if content:
                 try:
-                    st.write("📡 Supabaseに接続を試みています...")
-                    
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
-                    st.success("DBに保存しました！")
-                    
-                    with st.spinner("AIコーチが食事内容を分析中..."):
-                        prompt = f"{user_profile_text}\n今日の{m_type}の内容：{content}。このユーザーの年齢・体重・目的に対するPFCバランスの観点から良かった点と、次の食事への改善点を150文字以内で辛口かつ論理的にアドバイスしてください。"
-                        ai_res = ai_client.models.generate_content(
-                            model='gemini-2.5-flash', 
-                            contents=prompt, 
-                            config=genai.types.GenerateContentConfig(system_instruction="あなたはスポーツ栄養士です。")
-                        )
-                    st.info(ai_res.text)
-                    
+                    st.success(f"🍳 {m_type} の食事内容をデータベースに保存しました！")
                 except Exception as e:
-                    st.error(f"❌ 接続エラーの本当の理由: {str(e)}")
+                    st.error(f"❌ 接続エラー: {str(e)}")
             else:
                 st.warning("食事内容を入力してください。")
 
-    # --- タブ3：次回のメニュー提案 ---
+    # --- タブ3：次回のメニュー提案（ここで2.5-flashが稼働します） ---
     with tab3:
         st.subheader("過去のデータと要望から次回のメニューを生成")
         
-        # 💡 追加：ユーザーが自由に要望を入力できるテキストエリア
         user_request = st.text_area(
             "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
             placeholder="特にない場合は空欄のままでOKです"
@@ -166,7 +144,6 @@ if check_password():
             else:
                 history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
                 
-            # 💡 アップデート：ユーザーの自由入力をプロンプトに組み込む
             prompt = f"""
             {user_profile_text}
             
