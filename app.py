@@ -89,4 +89,68 @@ if check_password():
             st.rerun()
 
     # AIに渡すプロンプト用テキスト（タブ3の提案機能でのみ使用）
-    user_profile_text =
+    user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
+    
+    # タブ切り替え
+    tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
+
+    # --- タブ1：筋トレ記録 ---
+    with tab1:
+        st.subheader("今日のトレーニング")
+        w_date = st.date_input("日付", datetime.date.today(), key="w_date")
+        part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"])
+        menu = st.text_input("種目名（例: ベンチプレス）")
+        details = st.text_input("回数・セット（例: 80kg 10回 3セット）")
+        
+        if st.button("筋トレを記録＆送信"):
+            if menu and details:
+                data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
+                supabase.table("workout_logs").insert(data).execute()
+                st.success(f"💪 {menu} の記録をデータベースに保存しました！")
+            else:
+                st.warning("種目名と回数・セットを入力してください。")
+
+    # --- タブ2：食事記録 ---
+    with tab2:
+        st.subheader("食事の記録とアドバイス")
+        m_date = st.date_input("日付", datetime.date.today(), key="m_date")
+        m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"])
+        content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）")
+        
+        if st.button("食事を記録＆アドバイスを貰う"):
+            if content:
+                try:
+                    supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
+                    st.success(f"🍳 {m_type} の食事内容をデータベースに保存しました！")
+                except Exception as e:
+                    st.error(f"❌ 接続エラー: {str(e)}")
+            else:
+                st.warning("食事内容を入力してください。")
+
+    # --- タブ3：次回のメニュー提案 ---
+    with tab3:
+        st.subheader("過去のデータと要望から次回のメニューを生成")
+        
+        user_request = st.text_area(
+            "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
+            placeholder="特にない場合は空欄のままでOKです"
+        )
+        
+        if st.button("AIに次回のメニューを提案してもらう"):
+            past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
+            
+            if past_workouts.data:
+                history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
+            else:
+                history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
+                
+            # プロンプトの囲み文字内を綺麗に左揃えに修正
+            prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 今回挑戦すべき具体的な種目、セット数、目標重量と回数を3つほど箇条書きで提案してください。"
+            
+            with st.spinner("過去のデータと要望を分析してメニューを計算中..."):
+                ai_res = ai_client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=prompt, 
+                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。")
+                )
+            st.write(ai_res.text)
