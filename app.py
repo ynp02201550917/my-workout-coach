@@ -94,7 +94,7 @@ if check_password():
     # タブ切り替え
     tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
 
-    # --- タブ1：筋トレ記録（DB登録のみにシンプル化） ---
+    # --- タブ1：筋トレ記録 ---
     with tab1:
         st.subheader("今日のトレーニング")
         w_date = st.date_input("日付", datetime.date.today(), key="w_date")
@@ -110,14 +110,14 @@ if check_password():
             else:
                 st.warning("種目名と回数・セットを入力してください。")
 
-    # --- タブ2：食事記録（DB登録のみにシンプル化） ---
+    # --- タブ2：食事記録 ---
     with tab2:
         st.subheader("食事の記録とアドバイス")
         m_date = st.date_input("日付", datetime.date.today(), key="m_date")
         m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"])
         content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）")
         
-        if st.button("食事を記録＆アドバイスを貰う"): # ボタン名はそのままにしています
+        if st.button("食事を記録＆アドバイスを貰う"):
             if content:
                 try:
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
@@ -127,7 +127,7 @@ if check_password():
             else:
                 st.warning("食事内容を入力してください。")
 
-    # --- タブ3：次回のメニュー提案（ここで2.5-flashが稼働します） ---
+    # --- タブ3：次回のメニュー提案 ---
     with tab3:
         st.subheader("過去のデータと要望から次回のメニューを生成")
         
@@ -155,13 +155,4 @@ if check_password():
             
             【指示】
             1. ユーザーのプロフィールと過去の履歴を考慮し、さらに「ユーザーからの個別要望」が記載されている場合はそれを最優先して、今日（または次回）鍛えるべき最適なメニューを特定してください。
-            2. 過負荷の原則や超回復、およびユーザーのコンディションに配慮し、今回挑戦すべき「具体的な種目、セット数、目標重量と回数」を3つほど提案してください。
-            """
-            
-            with st.spinner("過去のデータと要望を分析してメニューを計算中..."):
-                ai_res = ai_client.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=prompt, 
-                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。")
-                )
-            st.write(ai_res.text)
+            2. 過負荷の原則や超回復、およびユーザーのコンディションに配慮し、今回挑戦すべき「具体的な種目
