@@ -71,7 +71,6 @@ if check_password():
         p_index = purpose_options.index(db_profile["purpose"]) if db_profile["purpose"] in purpose_options else 0
         a_index = activity_options.index(db_profile["activity"]) if db_profile["activity"] in activity_options else 0
 
-        # プロフィール側にも明示的にユニークなkeyを設定
         purpose = st.selectbox("トレーニングの目的", purpose_options, index=p_index, key="prof_purpose")
         activity = st.selectbox("日々の活動量", activity_options, index=a_index, key="prof_activity")
         
@@ -92,14 +91,21 @@ if check_password():
     # AIに渡すプロンプト用テキスト（タブ3の提案機能でのみ使用）
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
     
-    # タブ切り替え
-    tab1, tab2, tab3 = st.tabs(["筋トレ記録", "食事記録", "🔮 次回の提案"])
+    # --- 🛠️ 【変更点】バグの起きやすい st.tabs を廃止し、セグメントコントロール（ボタン型UI）を採用 ---
+    # スマホで最も誤作動が起きず、押しやすい選択方法です。
+    current_mode = st.radio(
+        "メニューを選択してください",
+        ["筋トレ記録", "食事記録", "🔮 次回の提案"],
+        horizontal=True,
+        key="app_mode_toggle"
+    )
 
-    # --- タブ1：筋トレ記録 ---
-    with tab1:
+    st.markdown("---")
+
+    # --- パターン1：筋トレ記録 ---
+    if current_mode == "筋トレ記録":
         st.subheader("今日のトレーニング")
         w_date = st.date_input("日付", datetime.date.today(), key="w_date")
-        # key="workout_part" を明示的に追加
         part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"], key="workout_part")
         menu = st.text_input("種目名（例: ベンチプレス）", key="workout_menu")
         details = st.text_input("回数・セット（例: 80kg 10回 3セット）", key="workout_details")
@@ -112,15 +118,14 @@ if check_password():
             else:
                 st.warning("種目名と回数・セットを入力してください。")
 
-    # --- タブ2：食事記録 ---
-    with tab2:
-        st.subheader("食事の記録とアドバイス")
+    # --- パターン2：食事記録 ---
+    elif current_mode == "食事記録":
+        st.subheader("食事の記録")
         m_date = st.date_input("日付", datetime.date.today(), key="m_date")
-        # key="meal_type" を明示的に追加
         m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"], key="meal_type")
         content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）", key="meal_content")
         
-        if st.button("食事を記録＆アドバイスを貰う", key="meal_save_btn"):
+        if st.button("食事を記録して保存", key="meal_save_btn"):
             if content:
                 try:
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
@@ -130,8 +135,8 @@ if check_password():
             else:
                 st.warning("食事内容を入力してください。")
 
-    # --- タブ3：次回のメニュー提案 ---
-    with tab3:
+    # --- パターン3：次回のメニュー提案 ---
+    elif current_mode == "🔮 次回の提案":
         st.subheader("過去のデータと要望から次回のメニューを生成")
         
         user_request = st.text_area(
