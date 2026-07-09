@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from google import genai
 import datetime
+from collections import defaultdict
 
 # --- セキュリティ対策③：パスワード簡易認証 ---
 def check_password():
@@ -88,17 +89,56 @@ if check_password():
             st.success("最新のプロフィールを履歴に保存しました！")
             st.rerun()
 
+    # --- 【新機能】ジム器具の管理エリア（アコーディオン） ---
+    with st.expander("🏋️‍♂️ ジムの導入器具・設備登録", expanded=False):
+        st.subheader("🆕 新しい器具の登録")
+        eq_category = st.selectbox(
+            "エリア・カテゴリ", 
+            ["プレートロード", "マシンエリア", "フリーウエイト", "ファンクショナル", "カーディオエリア", "設備・その他"],
+            key="eq_cat_select"
+        )
+        eq_name = st.text_input("器具・設備名（例: コンバージング・チェストプレス）", key="eq_name_input")
+        
+        if st.button("ジムの器具を登録する", key="eq_save_btn"):
+            if eq_name:
+                try:
+                    supabase.table("gym_equipments").insert({"category": eq_category, "name": eq_name}).execute()
+                    st.success(f"✅ 【{eq_category}】に「{eq_name}」を追加しました！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"登録エラー: {e}")
+            else:
+                st.warning("器具・設備名を入力してください。")
+
     # AIに渡すプロンプト用テキスト（タブ3の提案機能でのみ使用）
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
     
-    # --- 🛠️ 【変更点】バグの起きやすい st.tabs を廃止し、セグメントコントロール（ボタン型UI）を採用 ---
-    # スマホで最も誤作動が起きず、押しやすい選択方法です。
+    # --- 🛠️ セグメントコントロール（ボタン型UI） ---
     current_mode = st.radio(
         "メニューを選択してください",
         ["筋トレ記録", "食事記録", "🔮 次回の提案"],
         horizontal=True,
         key="app_mode_toggle"
     )
+
+    # --- 【新機能】登録済み器具の画面表示ロジック ---
+    # ラジオボタン変更後に、現在ジムに何があるかを常にスッキリ表示します
+    equip_dict = defaultdict(list)
+    try:
+        eq_res = supabase.table("gym_equipments").select("*").execute()
+        if eq_res.data:
+            for item in eq_res.data:
+                equip_dict[item["category"]].append(item["name"])
+            
+            # 画面上に現在の器具一覧をバッジ風・キャプション形式でコンパクトに常時表示
+            with st.container():
+                st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: 5px;'>📍 現在のジム設備ラインナップ</p>", unsafe_allow_html=True)
+                for cat, names in equip_dict.items():
+                    st.caption(f"**{cat}**: {', '.join(names)}")
+        else:
+            st.caption("ℹ️ 登録済みのジム器具はありません（上の登録メニューから追加できます）")
+    except Exception as e:
+        st.error(f"器具リストの読み込みエラー: {e}")
 
     st.markdown("---")
 
@@ -152,13 +192,20 @@ if check_password():
                 history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
             else:
                 history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
-                
-            prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 今回挑戦すべき具体的な種目、セット数、目標重量と回数を3つほど箇条書きで提案してください。"
             
-            with st.spinner("過去のデータと要望を分析してメニューを計算中..."):
+            # --- 【新機能】登録されたジム器具リストをテキスト化してプロンプトに内包 ---
+            gym_info = ""
+            if equip_dict:
+                gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
+            else:
+                gym_info = "一般的なジム器具（特定の指定なし）"
+                
+            prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
+            
+            with st.spinner("過去のデータと要望、ジムの設備を分析してメニューを計算中..."):
                 ai_res = ai_client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=prompt, 
-                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。")
+                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
                 )
             st.write(ai_res.text)
