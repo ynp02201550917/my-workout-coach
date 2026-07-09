@@ -89,7 +89,7 @@ if check_password():
             st.success("最新のプロフィールを履歴に保存しました！")
             st.rerun()
 
-    # 先にデータベースから最新の器具リストを裏側で取得（AIプロンプト作成とアコーディオン内部用）
+    # 先にデータベースから最新の器具リストを裏側で取得
     try:
         eq_res = supabase.table("gym_equipments").select("*").order("category").execute()
         raw_equipments = eq_res.data if eq_res.data else []
@@ -97,10 +97,13 @@ if check_password():
         st.error(f"器具データの取得失敗: {e}")
         raw_equipments = []
 
-    # プロンプトやアコーディオン表示に使う辞書の形に集計
+    # プロンプトや入力選択肢に使う辞書の形に集計
     equip_dict = defaultdict(list)
+    flat_equipment_names = []  # セレクトボックス用の平坦なリスト
     for item in raw_equipments:
         equip_dict[item["category"]].append(item["name"])
+        if item["name"] not in flat_equipment_names:
+            flat_equipment_names.append(item["name"])
 
     # --- ジム器具の管理エリア（アコーディオン） ---
     with st.expander("🏋️‍♂️ ジムの導入器具・設備登録＆編集", expanded=False):
@@ -126,7 +129,6 @@ if check_password():
         st.markdown("---")
         st.subheader("🛠️ 登録済み器具の管理（編集・削除）")
         
-        # 器具リストが空でなければ、このアコーディオンの中だけで一覧・編集UIを表示する
         if raw_equipments:
             for item in raw_equipments:
                 edit_col1, edit_col2, edit_col3 = st.columns([2, 2, 1])
@@ -172,14 +174,57 @@ if check_password():
         st.subheader("今日のトレーニング")
         w_date = st.date_input("日付", datetime.date.today(), key="w_date")
         part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"], key="workout_part")
-        menu = st.text_input("種目名（例: ベンチプレス）", key="workout_menu")
-        details = st.text_input("回数・セット（例: 80kg 10回 3セット）", key="workout_details")
+        
+        # 💡 種目名の入力タイプ切り替えボタン
+        menu_input_type = st.radio(
+            "種目名の入力形式",
+            ["登録器具から選択", "自由に入力（自宅トレなど）"],
+            horizontal=True,
+            key="menu_input_type"
+        )
+        
+        menu = ""
+        last_details_value = ""  # 前回値のデフォルトを初期化
+        
+        if menu_input_type == "登録器具から選択" and flat_equipment_names:
+            menu = st.selectbox("種目名（登録済みの器具）", flat_equipment_names, key="workout_menu_select")
+            
+            # 🔥 【新機能】選択された種目の「前回値（最新1件）」をSupabaseから取得
+            if menu:
+                try:
+                    past_log_res = (
+                        supabase.table("workout_logs")
+                        .select("volume_details")
+                        .eq("menu_name", menu)
+                        .order("workout_date", desc=True)
+                        .limit(1)
+                        .execute()
+                    )
+                    if past_log_res.data:
+                        last_details_value = past_log_res.data[0]["volume_details"]
+                except Exception as e:
+                    pass  # 過去ログ取得失敗時は空欄にする
+                    
+        else:
+            if menu_input_type == "登録器具から選択" and not flat_equipment_names:
+                st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
+            menu = st.text_input("種目名（例: 自重プッシュアップ）", key="workout_menu_text")
+        
+        # 💡 前回値がある場合はプレースホルダーではなく、最初からvalueに入力された状態にする
+        label_suffix = f" (前回値: {last_details_value})" if last_details_value else ""
+        details = st.text_input(
+            f"回数・セット{label_suffix}", 
+            value=last_details_value, 
+            placeholder="例: 80kg 10回 3セット", 
+            key="workout_details"
+        )
         
         if st.button("筋トレを記録＆送信", key="workout_save_btn"):
             if menu and details:
                 data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
                 supabase.table("workout_logs").insert(data).execute()
                 st.success(f"💪 {menu} の記録をデータベースに保存しました！")
+                st.rerun()  # 次回再描画時にスムーズに反映させるため
             else:
                 st.warning("種目名と回数・セットを入力してください。")
 
