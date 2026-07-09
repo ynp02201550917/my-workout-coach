@@ -89,6 +89,19 @@ if check_password():
             st.success("最新のプロフィールを履歴に保存しました！")
             st.rerun()
 
+    # 先にデータベースから最新の器具リストを裏側で取得（AIプロンプト作成とアコーディオン内部用）
+    try:
+        eq_res = supabase.table("gym_equipments").select("*").order("category").execute()
+        raw_equipments = eq_res.data if eq_res.data else []
+    except Exception as e:
+        st.error(f"器具データの取得失敗: {e}")
+        raw_equipments = []
+
+    # プロンプトやアコーディオン表示に使う辞書の形に集計
+    equip_dict = defaultdict(list)
+    for item in raw_equipments:
+        equip_dict[item["category"]].append(item["name"])
+
     # --- ジム器具の管理エリア（アコーディオン） ---
     with st.expander("🏋️‍♂️ ジムの導入器具・設備登録＆編集", expanded=False):
         st.subheader("🆕 新しい器具の登録")
@@ -113,18 +126,9 @@ if check_password():
         st.markdown("---")
         st.subheader("🛠️ 登録済み器具の管理（編集・削除）")
         
-        # データベースから最新の器具リストを取得
-        try:
-            eq_res = supabase.table("gym_equipments").select("*").order("category").execute()
-            raw_equipments = eq_res.data if eq_res.data else []
-        except Exception as e:
-            st.error(f"器具データの取得失敗: {e}")
-            raw_equipments = []
-
+        # 器具リストが空でなければ、このアコーディオンの中だけで一覧・編集UIを表示する
         if raw_equipments:
-            # 1つずつの器具を編集・削除できるリストを生成
             for item in raw_equipments:
-                # スマホでも並びが良いように3カラム構成（名前入力、カテゴリ、削除ボタン）
                 edit_col1, edit_col2, edit_col3 = st.columns([2, 2, 1])
                 
                 with edit_col1:
@@ -132,35 +136,25 @@ if check_password():
                         "器具名", value=item["name"], label_visibility="collapsed", key=f"name_{item['id']}"
                     )
                 with edit_col2:
-                    # カテゴリ変更用
                     cat_options = ["プレートロード", "マシンエリア", "フリーウエイト", "ファンクショナル", "カーディオエリア", "設備・その他"]
                     c_idx = cat_options.index(item["category"]) if item["category"] in cat_options else 0
                     new_cat = st.selectbox(
                         "カテゴリ", cat_options, index=c_idx, label_visibility="collapsed", key=f"cat_{item['id']}"
                     )
                 with edit_col3:
-                    # 削除ボタン
                     if st.button("🗑️", key=f"del_{item['id']}", help="この器具を削除します"):
                         supabase.table("gym_equipments").delete().eq("id", item["id"]).execute()
                         st.toast(f"🗑️ 「{item['name']}」を削除しました")
                         st.rerun()
                 
-                # もし名前やカテゴリが変更されていたら、自動（または裏側）で即時更新をかけられるようにフック
                 if new_name != item["name"] or new_cat != item["category"]:
                     if new_name.strip():
                         supabase.table("gym_equipments").update({"name": new_name, "category": new_cat}).eq("id", item["id"]).execute()
                         st.toast(f"✏️ 「{new_name}」に更新しました")
-                        # 連続タイピングを阻害しないよう、ここではあえて rerun() せずにトースト通知のみにします
-
         else:
             st.caption("ℹ️ 登録済みのジム器具はありません。")
 
-    # AIに渡すプロンプト用プロセッシング（現在のラインナップを再集計）
-    equip_dict = defaultdict(list)
-    for item in raw_equipments:
-        equip_dict[item["category"]].append(item["name"])
-
-    # AIに渡すプロンプト用テキスト（タブ3の提案機能でのみ使用）
+    # AIに渡すプロンプト用テキスト
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
     
     # --- 🛠️ セグメントコントロール（ボタン型UI） ---
@@ -170,15 +164,6 @@ if check_password():
         horizontal=True,
         key="app_mode_toggle"
     )
-
-    # 画面上に現在の器具一覧をバッジ風・キャプション形式でコンパクトに常時表示
-    if equip_dict:
-        with st.container():
-            st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: 5px;'>📍 現在のジム設備ラインナップ</p>", unsafe_allow_html=True)
-            for cat, names in equip_dict.items():
-                st.caption(f"**{cat}**: {', '.join(names)}")
-    else:
-        st.caption("ℹ️ 登録済みのジム器具はありません（上の登録メニューから追加できます）")
 
     st.markdown("---")
 
