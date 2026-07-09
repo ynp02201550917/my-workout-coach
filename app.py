@@ -175,7 +175,7 @@ if check_password():
         w_date = st.date_input("日付", datetime.date.today(), key="w_date")
         part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"], key="workout_part")
         
-        # 💡 種目名の入力タイプ切り替えボタン
+        # 種目名の入力タイプ切り替えボタン
         menu_input_type = st.radio(
             "種目名の入力形式",
             ["登録器具から選択", "自由に入力（自宅トレなど）"],
@@ -184,38 +184,51 @@ if check_password():
         )
         
         menu = ""
-        last_details_value = ""  # 前回値のデフォルトを初期化
+        last_details_value = ""  # 前回値のデフォルト（データがない場合は空文字）
+        current_placeholder = "例: 80kg 10回 3セット"  # デフォルトのプレースホルダー
         
-        if menu_input_type == "登録器具から選択" and flat_equipment_names:
-            menu = st.selectbox("種目名（登録済みの器具）", flat_equipment_names, key="workout_menu_select")
-            
-            # 🔥 【新機能】選択された種目の「前回値（最新1件）」をSupabaseから取得
-            if menu:
-                try:
-                    past_log_res = (
-                        supabase.table("workout_logs")
-                        .select("volume_details")
-                        .eq("menu_name", menu)
-                        .order("workout_date", desc=True)
-                        .limit(1)
-                        .execute()
-                    )
-                    if past_log_res.data:
-                        last_details_value = past_log_res.data[0]["volume_details"]
-                except Exception as e:
-                    pass  # 過去ログ取得失敗時は空欄にする
+        if menu_input_type == "登録器具から選択":
+            if flat_equipment_names:
+                menu = st.selectbox("種目名（登録済みの器具）", flat_equipment_names, key="workout_menu_select")
+                
+                # 選択された種目の「前回値（最新1件）」をSupabaseから取得
+                if menu:
+                    try:
+                        past_log_res = (
+                            supabase.table("workout_logs")
+                            .select("volume_details")
+                            .eq("menu_name", menu)
+                            .order("workout_date", desc=True)
+                            .limit(1)
+                            .execute()
+                        )
+                        if past_log_res.data and past_log_res.data[0]["volume_details"]:
+                            last_details_value = past_log_res.data[0]["volume_details"]
+                        else:
+                            # 過去データが本当にない（または空文字の）場合は、プレースホルダーも消して完全な空にする
+                            last_details_value = ""
+                            current_placeholder = ""
+                    except Exception as e:
+                        last_details_value = ""
+                        current_placeholder = ""
+            else:
+                st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
+                current_placeholder = ""
                     
         else:
-            if menu_input_type == "登録器具から選択" and not flat_equipment_names:
-                st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
+            # 自由入力（自宅トレなど）の時は、直前の選択マシンの前回値を引き継がないようクリアし、汎用プレースホルダーを出す
             menu = st.text_input("種目名（例: 自重プッシュアップ）", key="workout_menu_text")
+            last_details_value = ""
+            current_placeholder = "例: 10回 3セット"
         
-        # 💡 前回値がある場合はプレースホルダーではなく、最初からvalueに入力された状態にする
-        label_suffix = f" (前回値: {last_details_value})" if last_details_value else ""
+        # ラベルの表示切り替え
+        label_suffix = f" (前回値: {last_details_value})" if last_details_value else " (前回値データなし)"
+        
+        # valueに前回値が入り、なければ空白（かつplaceholderも非表示）になります
         details = st.text_input(
             f"回数・セット{label_suffix}", 
             value=last_details_value, 
-            placeholder="例: 80kg 10回 3セット", 
+            placeholder=current_placeholder, 
             key="workout_details"
         )
         
