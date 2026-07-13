@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from google import genai
 import datetime
+import time
 from collections import defaultdict
 
 # --- セキュリティ対策③：パスワード簡易認証 ---
@@ -84,6 +85,7 @@ if check_password():
             }
             supabase.table("user_profiles").insert(new_history_data).execute()
             st.success("最新のプロフィールを履歴に保存しました！")
+            time.sleep(1.0)
             st.rerun()
 
     # 先にデータベースから最新の器具リストを裏側で取得
@@ -125,6 +127,7 @@ if check_password():
                         "target_part": db_part
                     }).execute()
                     st.success(f"✅ 【{eq_category}】に「{eq_name}（部位: {eq_target_part}）」を追加しました！")
+                    time.sleep(1.0)
                     st.rerun()
                 except Exception as e:
                     st.error(f"登録エラー: {e}")
@@ -157,6 +160,7 @@ if check_password():
                     if st.button("🗑️", key=f"del_{item['id']}", help="この器具を削除します"):
                         supabase.table("gym_equipments").delete().eq("id", item["id"]).execute()
                         st.toast(f"🗑️ 「{item['name']}」を削除しました")
+                        time.sleep(0.5)
                         st.rerun()
                 
                 # 変更があったら即時アップデート
@@ -256,9 +260,14 @@ if check_password():
         if st.button("筋トレを記録＆送信", key="workout_save_btn"):
             if menu and details:
                 data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
-                supabase.table("workout_logs").insert(data).execute()
-                st.success(f"💪 {menu} の記録をデータベースに保存しました！")
-                st.rerun() 
+                try:
+                    supabase.table("workout_logs").insert(data).execute()
+                    # 💡 改善ポイント：送信成功メッセージを表示し、1.5秒待ってからリロード
+                    st.success(f"✅ 送信完了！ 【{menu}】の記録を保存しました。")
+                    time.sleep(1.5)
+                    st.rerun() 
+                except Exception as e:
+                    st.error(f"❌ 送信失敗（エラー: {e}）")
             else:
                 st.warning("種目名と回数・セットを入力してください。")
 
@@ -268,11 +277,15 @@ if check_password():
         m_date = st.date_input("日付", datetime.date.today(), key="m_date")
         m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"], key="meal_type")
         content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）", key="meal_content")
+        
         if st.button("食事を記録して保存", key="meal_save_btn"):
             if content:
                 try:
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
-                    st.success(f"🍳 {m_type} の食事内容をデータベースに保存しました！")
+                    # 💡 食事側も同様に「溜め」を作って分かりやすく修正
+                    st.success(f"🍳 保存完了！ {m_type} の食事内容を記録しました。")
+                    time.sleep(1.5)
+                    st.rerun()
                 except Exception as e:
                     st.error(f"❌ 接続エラー: {str(e)}")
             else:
