@@ -96,7 +96,7 @@ if check_password():
         st.error(f"器具データの取得失敗: {e}")
         raw_equipments = []
 
-    # AIプロンプト用の集計（部位情報 target_part も含めてAIに送る）
+    # AIプロンプト用の集計
     equip_dict = defaultdict(list)
     for item in raw_equipments:
         part_info = f" ({item['target_part']})" if item.get("target_part") else " (指定なし)"
@@ -163,7 +163,6 @@ if check_password():
                         time.sleep(0.5)
                         st.rerun()
                 
-                # 変更があったら即時アップデート
                 db_new_part = None if new_part == "指定なし" else new_part
                 if new_name != item["name"] or new_cat != item["category"] or db_new_part != item.get("target_part"):
                     if new_name.strip():
@@ -175,6 +174,51 @@ if check_password():
                         st.toast(f"✏️ 「{new_name}」の設定を更新しました")
         else:
             st.caption("ℹ️ 登録済みのジム器具はありません。")
+
+    # ✨ NEW: --- AI提案の前提条件 管理エリア（アコーディオン） ---
+    try:
+        cond_res = supabase.table("ai_conditions").select("*").order("created_at").execute()
+        raw_conditions = cond_res.data if cond_res.data else []
+    except Exception as e:
+        st.error(f"前提条件データの取得失敗: {e}")
+        raw_conditions = []
+
+    with st.expander("🔮 AI提案の前提条件（プロンプト設定）", expanded=False):
+        st.subheader("🆕 前提条件の追加")
+        new_cond_text = st.text_input("メニュー生成時にAIに必ず守らせたい条件（例: 有酸素運動はなし）", key="new_cond_input")
+        if st.button("条件を追加する", key="cond_save_btn"):
+            if new_cond_text.strip():
+                try:
+                    supabase.table("ai_conditions").insert({"content": new_cond_text.strip()}).execute()
+                    st.success(f"✅ 条件「{new_cond_text}」を追加しました！")
+                    time.sleep(1.0)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"登録エラー: {e}")
+            else:
+                st.warning("条件を入力してください。")
+        
+        st.markdown("---")
+        st.subheader("🛠️ 登録済みの前提条件一覧")
+        if raw_conditions:
+            for cond in raw_conditions:
+                c_col1, c_col2 = st.columns([5, 1])
+                with c_col1:
+                    edited_cond = st.text_input(
+                        "条件内容", value=cond["content"], label_visibility="collapsed", key=f"cond_text_{cond['id']}"
+                    )
+                with c_col2:
+                    if st.button("🗑️", key=f"cond_del_{cond['id']}", help="この条件を削除します"):
+                        supabase.table("ai_conditions").delete().eq("id", cond["id"]).execute()
+                        st.toast("🗑️ 条件を削除しました")
+                        time.sleep(0.5)
+                        st.rerun()
+                
+                if edited_cond != cond["content"] and edited_cond.strip():
+                    supabase.table("ai_conditions").update({"content": edited_cond.strip()}).eq("id", cond["id"]).execute()
+                    st.toast("✏️ 条件を更新しました")
+        else:
+            st.caption("ℹ️ 登録されている固定の前提条件はありません。")
 
     # ユーザープロフィールテキストの構築
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
@@ -262,7 +306,6 @@ if check_password():
                 data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
                 try:
                     supabase.table("workout_logs").insert(data).execute()
-                    # 💡 改善ポイント：送信成功メッセージを表示し、1.5秒待ってからリロード
                     st.success(f"✅ 送信完了！ 【{menu}】の記録を保存しました。")
                     time.sleep(1.5)
                     st.rerun() 
@@ -282,7 +325,6 @@ if check_password():
             if content:
                 try:
                     supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
-                    # 💡 食事側も同様に「溜め」を作って分かりやすく修正
                     st.success(f"🍳 保存完了！ {m_type} の食事内容を記録しました。")
                     time.sleep(1.5)
                     st.rerun()
@@ -295,14 +337,13 @@ if check_password():
     elif current_mode == "🔮 次回の提案":
         st.subheader("🔮 過去のデータからAI提案")
         
-        # タブでトレーニングと食事の提案画面を切り替え
         tab_gym, tab_meal = st.tabs(["🏋️‍♂️ 次回のジムメニュー", "🥗 次回の食事メニュー"])
         
         # --- タブ1：ジムメニュー提案 ---
         with tab_gym:
-            st.caption("登録されているジム設備と過去の筋トレ履歴からメニューを算出します。")
+            st.caption("登録されているジム設備、過去の筋トレ履歴、および【管理エリアで設定した前提条件】からメニューを算出します。")
             gym_request = st.text_area(
-                "ジムメニューへの個別要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
+                "ジムメニューへのその日の個別要望（例: 「今日は寝不足なので軽めで」「時短15分で」など）",
                 placeholder="特にない場合は空欄のままでOKです",
                 key="ai_gym_request"
             )
@@ -318,19 +359,24 @@ if check_password():
                     gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
                 else:
                     gym_info = "一般的なジム器具（特定の指定なし）"
-                    
-                prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{gym_request if gym_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
                 
-                with st.spinner("トレーニング履歴とジム設備を分析中..."):
+                # 💡 登録された固定の前提条件をテキスト化してプロンプトに注入する
+                fixed_conditions_text = ""
+                if raw_conditions:
+                    fixed_conditions_text = "\n".join([f"・{c['content']}" for c in raw_conditions])
+                else:
+                    fixed_conditions_text = "特になし"
+                    
+                prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【必ず守るべき必須の前提条件】\n{fixed_conditions_text}\n\n【トレーニング履歴】\n{history_text}\n\n【当日の個別要望】\n{gym_request if gym_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、「必ず守るべき必須の前提条件」および「当日の個別要望」を絶対に厳守して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
+                
+                with st.spinner("トレーニング履歴とジム設備・前提条件を分析中..."):
                     ai_res = ai_client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=prompt,
-                        config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
+                        config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、『必ず守るべき必須の前提条件』を満たした具体的で実践しやすいメニューを作成してください。")
                     )
-                    # セッション状態に生成したテキストを保存
                     st.session_state.gym_advice = ai_res.text
 
-            # 保存されたジムメニューデータがあれば常に表示する
             if "gym_advice" in st.session_state:
                 st.markdown("---")
                 st.markdown("### 🏋️‍♂️ おすすめの次回のメニュー")
@@ -359,10 +405,8 @@ if check_password():
                         contents=prompt,
                         config=genai.types.GenerateContentConfig(system_instruction="あなたは栄養学の知識が豊富で、ユーザーの日々の生活に寄り添う優秀なスポーツ栄養士・管理栄養士です。堅苦しくなく、明日からすぐに真似できる具体的で美味しい食事アドバイスを提供してください。")
                     )
-                    # セッション状態に生成したテキストを保存
                     st.session_state.meal_advice = ai_res.text
 
-            # 保存された食事メニューデータがあれば常に表示する
             if "meal_advice" in st.session_state:
                 st.markdown("---")
                 st.markdown("### 🥗 おすすめの食事メニュー・アドバイス")
