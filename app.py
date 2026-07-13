@@ -18,6 +18,7 @@ def check_password():
             st.error("パスワードが違います")
     return False
 
+# 💡 ログイン成功時のみ、以下のすべての処理を実行する
 if check_password():
     # --- 安全なキーの読み込み（セキュリティ対策①） ---
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -171,142 +172,142 @@ if check_password():
         else:
             st.caption("ℹ️ 登録済みのジム器具はありません。")
 
-# AIに渡すプロンプト用テキスト
-user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
+    # 💡 修正：インデントを下げて if check_password(): の内側（スコープ内）に配置
+    user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
 
-# --- セグメントコントロール（ボタン型UI） ---
-current_mode = st.radio(
-    "メニューを選択してください",
-    ["筋トレ記録", "食事記録", "🔮 次回の提案"],
-    horizontal=True,
-    key="app_mode_toggle"
-)
-
-st.markdown("---")
-
-# --- パターン1：筋トレ記録 ---
-if current_mode == "筋トレ記録":
-    st.subheader("今日のトレーニング")
-    w_date = st.date_input("日付", datetime.date.today(), key="w_date")
-    part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"], key="workout_part")
-    
-    menu_input_type = st.radio(
-        "種目名の入力形式",
-        ["登録器具から選択", "自由に入力（自宅トレなど）"],
+    # --- セグメントコントロール（ボタン型UI） ---
+    current_mode = st.radio(
+        "メニューを選択してください",
+        ["筋トレ記録", "食事記録", "🔮 次回の提案"],
         horizontal=True,
-        key="menu_input_type"
+        key="app_mode_toggle"
     )
-    
-    menu = ""
-    last_details_value = "" 
-    current_placeholder = "例: 80kg 10回 3セット" 
-    
-    if menu_input_type == "登録器具から選択":
-        if raw_equipments:
-            # 🔍 【最重要ロジック】選択された部位と一致、または target_part が Null/空文字の器具を抽出
-            filtered_equipments = [
-                item["name"] for item in raw_equipments 
-                if item.get("target_part") == part or item.get("target_part") is None or item.get("target_part") == ""
-            ]
-            
-            if filtered_equipments:
-                menu = st.selectbox(f"種目名（{part}の対象器具・共通器具）", filtered_equipments, key="workout_menu_select")
-                
-                # 選択された種目の「前回値（最新1件）」をSupabaseから取得
-                if menu:
-                    try:
-                        past_log_res = (
-                            supabase.table("workout_logs")
-                            .select("volume_details")
-                            .eq("menu_name", menu)
-                            .order("workout_date", desc=True)
-                            .limit(1)
-                            .execute()
-                        )
-                        if past_log_res.data and past_log_res.data[0]["volume_details"]:
-                            last_details_value = past_log_res.data[0]["volume_details"]
-                            current_placeholder = f"前回値: {last_details_value}"
-                        else:
-                            last_details_value = ""
-                            current_placeholder = "例: 10回 3セット"
-                    except Exception:
-                        pass
-            else:
-                st.info(f"ℹ️ {part}に対応する器具が登録されていません。全器具から選択します。")
-                all_names = [item["name"] for item in raw_equipments]
-                menu = st.selectbox("種目名（すべての器具）", all_names, key="workout_menu_select_fallback")
-        else:
-            st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
-    else:
-        # 自由入力
-        menu = st.text_input("種目名（例: 自重プッシュアップ）", key="workout_menu_text")
-        last_details_value = ""
-        current_placeholder = "例: 10回 3セット"
 
-    # ラベルの表示切り替え
-    label_suffix = f" (前回値: {last_details_value})" if last_details_value else " (前回値データなし)"
-    
-    details = st.text_input(
-        f"回数・セット{label_suffix}",
-        value=last_details_value,
-        placeholder=current_placeholder,
-        key="workout_details"
-    )
-    
-    if st.button("筋トレを記録＆送信", key="workout_save_btn"):
-        if menu and details:
-            # 注: テーブルの列名「part」に合わせてデータを挿入
-            data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
-            supabase.table("workout_logs").insert(data).execute()
-            st.success(f"💪 {menu} の記録をデータベースに保存しました！")
-            st.rerun() 
-        else:
-            st.warning("種目名と回数・セットを入力してください。")
+    st.markdown("---")
 
-# --- パターン2：食事記録 ---
-elif current_mode == "食事記録":
-    st.subheader("食事の記録")
-    m_date = st.date_input("日付", datetime.date.today(), key="m_date")
-    m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"], key="meal_type")
-    content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）", key="meal_content")
-    if st.button("食事を記録して保存", key="meal_save_btn"):
-        if content:
-            try:
-                supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
-                st.success(f"🍳 {m_type} の食事内容をデータベースに保存しました！")
-            except Exception as e:
-                st.error(f"❌ 接続エラー: {str(e)}")
-        else:
-            st.warning("食事内容を入力してください。")
-
-# --- パターン3：次回のメニュー提案 ---
-elif current_mode == "🔮 次回の提案":
-    st.subheader("過去のデータと要望から次回のメニューを生成")
-    user_request = st.text_area(
-        "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
-        placeholder="特にない場合は空欄のままでOKです",
-        key="ai_request"
-    )
-    if st.button("AIに次回のメニューを提案してもらう", key="ai_suggest_btn"):
-        past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
-        if past_workouts.data:
-            history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
-        else:
-            history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
-            
-        # 登録されたジム器具リスト（部位情報つき）をテキスト化してプロンプトに内包
-        gym_info = ""
-        if equip_dict:
-            gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
-        else:
-            gym_info = "一般的なジム器具（特定の指定なし）"
-            
-        prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
+    # --- パターン1：筋トレ記録 ---
+    if current_mode == "筋トレ記録":
+        st.subheader("今日のトレーニング")
+        w_date = st.date_input("日付", datetime.date.today(), key="w_date")
+        part = st.selectbox("部位", ["胸", "背中", "脚", "肩", "腕", "腹筋"], key="workout_part")
         
-        with st.spinner("過去のデータと要望、ジムの設備を分析してメニューを計算中..."):
-            ai_res = ai_client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
-            )
-            st.write(ai_res.text)
+        menu_input_type = st.radio(
+            "種目名の入力形式",
+            ["登録器具から選択", "自由に入力（自宅トレなど）"],
+            horizontal=True,
+            key="menu_input_type"
+        )
+        
+        menu = ""
+        last_details_value = "" 
+        current_placeholder = "例: 80kg 10回 3セット" 
+        
+        if menu_input_type == "登録器具から選択":
+            if raw_equipments:
+                # 🔍 選択された部位と一致、または target_part が Null/空文字の器具を抽出
+                filtered_equipments = [
+                    item["name"] for item in raw_equipments 
+                    if item.get("target_part") == part or item.get("target_part") is None or item.get("target_part") == ""
+                ]
+                
+                if filtered_equipments:
+                    menu = st.selectbox(f"種目名（{part}の対象器具・共通器具）", filtered_equipments, key="workout_menu_select")
+                    
+                    # 選択された種目の「前回値（最新1件）」をSupabaseから取得
+                    if menu:
+                        try:
+                            past_log_res = (
+                                supabase.table("workout_logs")
+                                .select("volume_details")
+                                .eq("menu_name", menu)
+                                .order("workout_date", desc=True)
+                                .limit(1)
+                                .execute()
+                            )
+                            if past_log_res.data and past_log_res.data[0]["volume_details"]:
+                                last_details_value = past_log_res.data[0]["volume_details"]
+                                current_placeholder = f"前回値: {last_details_value}"
+                            else:
+                                last_details_value = ""
+                                current_placeholder = "例: 10回 3セット"
+                        except Exception:
+                            pass
+                else:
+                    st.info(f"ℹ️ {part}に対応する器具が登録されていません。全器具から選択します。")
+                    all_names = [item["name"] for item in raw_equipments]
+                    menu = st.selectbox("種目名（すべての器具）", all_names, key="workout_menu_select_fallback")
+            else:
+                st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
+        else:
+            # 自由入力
+            menu = st.text_input("種目名（例: 自重プッシュアップ）", key="workout_menu_text")
+            last_details_value = ""
+            current_placeholder = "例: 10回 3セット"
+
+        # ラベルの表示切り替え
+        label_suffix = f" (前回値: {last_details_value})" if last_details_value else " (前回値データなし)"
+        
+        details = st.text_input(
+            f"回数・セット{label_suffix}",
+            value=last_details_value,
+            placeholder=current_placeholder,
+            key="workout_details"
+        )
+        
+        if st.button("筋トレを記録＆送信", key="workout_save_btn"):
+            if menu and details:
+                # 注: テーブルの列名「part」に合わせてデータを挿入
+                data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
+                supabase.table("workout_logs").insert(data).execute()
+                st.success(f"💪 {menu} の記録をデータベースに保存しました！")
+                st.rerun() 
+            else:
+                st.warning("種目名と回数・セットを入力してください。")
+
+    # --- パターン2：食事記録 ---
+    elif current_mode == "食事記録":
+        st.subheader("食事の記録")
+        m_date = st.date_input("日付", datetime.date.today(), key="m_date")
+        m_type = st.selectbox("タイミング", ["朝食", "昼食", "夕食", "間食"], key="meal_type")
+        content = st.text_area("食べた内容（例: ササミ、玄米、プロテイン）", key="meal_content")
+        if st.button("食事を記録して保存", key="meal_save_btn"):
+            if content:
+                try:
+                    supabase.table("meal_logs").insert({"meal_date": str(m_date), "meal_type": m_type, "content": content}).execute()
+                    st.success(f"🍳 {m_type} の食事内容をデータベースに保存しました！")
+                except Exception as e:
+                    st.error(f"❌ 接続エラー: {str(e)}")
+            else:
+                st.warning("食事内容を入力してください。")
+
+    # --- パターン3：次回のメニュー提案 ---
+    elif current_mode == "🔮 次回の提案":
+        st.subheader("過去のデータと要望から次回のメニューを生成")
+        user_request = st.text_area(
+            "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
+            placeholder="特にない場合は空欄のままでOKです",
+            key="ai_request"
+        )
+        if st.button("AIに次回のメニューを提案してもらう", key="ai_suggest_btn"):
+            past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
+            if past_workouts.data:
+                history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
+            else:
+                history_text = "過去の履歴はありません。新規 of 基本メニューを考えてください。"
+                
+            # 登録されたジム器具リスト（部位情報つき）をテキスト化してプロンプトに内包
+            gym_info = ""
+            if equip_dict:
+                gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
+            else:
+                gym_info = "一般的なジム器具（特定の指定なし）"
+                
+            prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
+            
+            with st.spinner("過去のデータと要望、ジムの設備を分析してメニューを計算中..."):
+                ai_res = ai_client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
+                )
+                st.write(ai_res.text)
