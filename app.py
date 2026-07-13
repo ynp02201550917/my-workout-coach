@@ -204,22 +204,16 @@ if check_password():
         
         if menu_input_type == "登録器具から選択":
             if raw_equipments:
-                # 🔍 1. 選択された部位と一致、または target_part が Null/空文字の器具をオブジェクトのまま抽出
                 filtered_items = [
                     item for item in raw_equipments 
                     if item.get("target_part") == part or item.get("target_part") is None or item.get("target_part") == ""
                 ]
-                
-                # 🔍 2. 指定条件でソート (第1優先: 部位が一致するものが上[Falseが先]、第2優先: 名称の昇順)
                 filtered_items.sort(key=lambda x: (x.get("target_part") != part, x["name"]))
-                
-                # 🔍 3. セレクトボックス表示用に名前のリストを展開
                 filtered_equipments = [item["name"] for item in filtered_items]
                 
                 if filtered_equipments:
                     menu = st.selectbox(f"種目名（{part}の対象器具・共通器具）", filtered_equipments, key="workout_menu_select")
                     
-                    # 選択された種目の「前回値（最新1件）」をSupabaseから取得
                     if menu:
                         try:
                             past_log_res = (
@@ -241,17 +235,15 @@ if check_password():
                 else:
                     st.info(f"ℹ️ {part}に対応する器具が登録されていません。全器具から選択します。")
                     all_names = [item["name"] for item in raw_equipments]
-                    all_names.sort()  # デフォルトで昇順ソート
+                    all_names.sort()
                     menu = st.selectbox("種目名（すべての器具）", all_names, key="workout_menu_select_fallback")
             else:
                 st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
         else:
-            # 自由入力
             menu = st.text_input("種目名（例: 自重プッシュアップ）", key="workout_menu_text")
             last_details_value = ""
             current_placeholder = "例: 10回 3セット"
 
-        # ラベルの表示切り替え
         label_suffix = f" (前回値: {last_details_value})" if last_details_value else " (前回値データなし)"
         
         details = st.text_input(
@@ -322,8 +314,14 @@ if check_password():
                         contents=prompt,
                         config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
                     )
-                    st.markdown("### 🏋️‍♂️ おすすめの次回のメニュー")
-                    st.write(ai_res.text)
+                    # セッション状態に生成したテキストを保存
+                    st.session_state.gym_advice = ai_res.text
+
+            # 保存されたジムメニューデータがあれば常に表示する
+            if "gym_advice" in st.session_state:
+                st.markdown("---")
+                st.markdown("### 🏋️‍♂️ おすすめの次回のメニュー")
+                st.write(st.session_state.gym_advice)
 
         # --- タブ2：食事メニュー提案 ---
         with tab_meal:
@@ -334,7 +332,6 @@ if check_password():
                 key="ai_meal_request"
             )
             if st.button("AIに食事メニューを提案してもらう", key="ai_meal_suggest_btn"):
-                # 直近10件の食事ログを取得
                 past_meals = supabase.table("meal_logs").select("*").order("meal_date", desc=True).limit(10).execute()
                 if past_meals.data:
                     meal_history_text = "\n".join([f"・{r['meal_date']} [{r['meal_type']}] {r['content']}" for r in past_meals.data])
@@ -349,5 +346,11 @@ if check_password():
                         contents=prompt,
                         config=genai.types.GenerateContentConfig(system_instruction="あなたは栄養学の知識が豊富で、ユーザーの日々の生活に寄り添う優秀なスポーツ栄養士・管理栄養士です。堅苦しくなく、明日からすぐに真似できる具体的で美味しい食事アドバイスを提供してください。")
                     )
-                    st.markdown("### 🥗 おすすめの食事メニュー・アドバイス")
-                    st.write(ai_res.text)
+                    # セッション状態に生成したテキストを保存
+                    st.session_state.meal_advice = ai_res.text
+
+            # 保存された食事メニューデータがあれば常に表示する
+            if "meal_advice" in st.session_state:
+                st.markdown("---")
+                st.markdown("### 🥗 おすすめの食事メニュー・アドバイス")
+                st.write(st.session_state.meal_advice)
