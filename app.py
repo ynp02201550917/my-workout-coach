@@ -288,32 +288,66 @@ if check_password():
 
     # --- パターン3：次回のメニュー提案 ---
     elif current_mode == "🔮 次回の提案":
-        st.subheader("過去のデータと要望から次回のメニューを生成")
-        user_request = st.text_area(
-            "AIへの特別な要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
-            placeholder="特にない場合は空欄のままでOKです",
-            key="ai_request"
-        )
-        if st.button("AIに次回のメニューを提案してもらう", key="ai_suggest_btn"):
-            past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
-            if past_workouts.data:
-                history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
-            else:
-                history_text = "過去の履歴はありません。新規 of 基本メニューを考えてください。"
+        st.subheader("🔮 過去のデータからAI提案")
+        
+        # タブでトレーニングと食事の提案画面を切り替え
+        tab_gym, tab_meal = st.tabs(["🏋️‍♂️ 次回のジムメニュー", "🥗 次回の食事メニュー"])
+        
+        # --- タブ1：ジムメニュー提案 ---
+        with tab_gym:
+            st.caption("登録されているジム設備と過去の筋トレ履歴からメニューを算出します。")
+            gym_request = st.text_area(
+                "ジムメニューへの個別要望（例: 「出張中なので自重のみ」「肩を痛めているので避けて」「時短15分で」など）",
+                placeholder="特にない場合は空欄のままでOKです",
+                key="ai_gym_request"
+            )
+            if st.button("AIにジムメニューを提案してもらう", key="ai_gym_suggest_btn"):
+                past_workouts = supabase.table("workout_logs").select("*").order("workout_date", desc=True).limit(14).execute()
+                if past_workouts.data:
+                    history_text = "\n".join([f"・{r['workout_date']} [{r['part']}] {r['menu_name']}: {r['volume_details']}" for r in past_workouts.data])
+                else:
+                    history_text = "過去の履歴はありません。新規の基本メニューを考えてください。"
+                    
+                gym_info = ""
+                if equip_dict:
+                    gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
+                else:
+                    gym_info = "一般的なジム器具（特定の指定なし）"
+                    
+                prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{gym_request if gym_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
                 
-            # 登録されたジム器具リスト（部位情報つき）をテキスト化してプロンプトに内包
-            gym_info = ""
-            if equip_dict:
-                gym_info = "\n".join([f"・{k}: {', '.join(v)}" for k, v in equip_dict.items()])
-            else:
-                gym_info = "一般的なジム器具（特定の指定なし）"
+                with st.spinner("トレーニング履歴とジム設備を分析中..."):
+                    ai_res = ai_client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                        config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
+                    )
+                    st.markdown("### 🏋️‍♂️ おすすめの次回のメニュー")
+                    st.write(ai_res.text)
+
+        # --- タブ2：食事メニュー提案 ---
+        with tab_meal:
+            st.caption("ユーザーの目的や直近の食事内容から、おすすめのPFCバランスや具体的なメニューを提案します。")
+            meal_request = st.text_area(
+                "食事メニューへの個別要望（例: 「コンビニで買えるもの」「高タンパク・低糖質で」「自炊で簡単に作れるもの」など）",
+                placeholder="特にない場合は空欄のままでOKです",
+                key="ai_meal_request"
+            )
+            if st.button("AIに食事メニューを提案してもらう", key="ai_meal_suggest_btn"):
+                # 直近10件の食事ログを取得
+                past_meals = supabase.table("meal_logs").select("*").order("meal_date", desc=True).limit(10).execute()
+                if past_meals.data:
+                    meal_history_text = "\n".join([f"・{r['meal_date']} [{r['meal_type']}] {r['content']}" for r in past_meals.data])
+                else:
+                    meal_history_text = "直近の食事履歴はありません。"
+                    
+                prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【直近の食事履歴】\n{meal_history_text}\n\n【個別要望】\n{meal_request if meal_request else '特になし'}\n\n【指示】\n1. ユーザーの年齢・体重・筋肉量・活動量、およびトレーニングの目的（引き締め、バルクアップ等）を元に、次回の食事で意識すべきカロリーやPFC（タンパク質・脂質・炭水化物）バランスの方向性を提示してください。\n2. 直近の食事内容で不足していそうな栄養素（例：タンパク質不足、野菜不足など）があれば優しく指摘し、個別要望に沿った具体的な食事メニュー例（朝・昼・晩・間食のいずれか、または全体）を提案してください。"
                 
-            prompt = f"【ユーザープロフィール】\n{user_profile_text}\n\n【利用可能なジムの器具・設備（カッコ内は対象部位）】\n{gym_info}\n\n【トレーニング履歴】\n{history_text}\n\n【個別要望】\n{user_request if user_request else '特になし'}\n\n【指示】\n1. ユーザーのプロフィールと過去の履歴を考慮し、個別要望がある場合はそれを最優先して、次回鍛えるべき最適なメニューを特定してください。\n2. 「利用可能なジムの器具・設備」に登録されている種目やマシンを最大限優先的に使用し、今回挑戦すべき具体的な種目、セット数、目標重量と回数を提案してください。"
-            
-            with st.spinner("過去のデータと要望、ジムの設備を分析してメニューを計算中..."):
-                ai_res = ai_client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=prompt,
-                    config=genai.types.GenerateContentConfig(system_instruction="あなたは科学的根拠を重視し、ユーザーの状況に柔軟に寄り添うパーソナルトレーナーです。提供された『利用可能なジムの器具・設備』のリストにあるマシンや設備をベースに、具体的で実践しやすいメニューを作成してください。")
-                )
-                st.write(ai_res.text)
+                with st.spinner("食事履歴とプロフィールから最適な栄養バランスを計算中..."):
+                    ai_res = ai_client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                        config=genai.types.GenerateContentConfig(system_instruction="あなたは栄養学の知識が豊富で、ユーザーの日々の生活に寄り添う優秀なスポーツ栄養士・管理栄養士です。堅苦しくなく、明日からすぐに真似できる具体的で美味しい食事アドバイスを提供してください。")
+                    )
+                    st.markdown("### 🥗 おすすめの食事メニュー・アドバイス")
+                    st.write(ai_res.text)
