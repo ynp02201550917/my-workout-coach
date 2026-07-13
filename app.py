@@ -172,7 +172,7 @@ if check_password():
         else:
             st.caption("ℹ️ 登録済みのジム器具はありません。")
 
-    # 💡 修正：インデントを下げて if check_password(): の内側（スコープ内）に配置
+    # ユーザープロフィールテキストの構築
     user_profile_text = f"【ユーザー情報】年齢: {age}歳, 身長: {height}cm, 体重: {weight}kg, 筋肉量: {muscle_mass}kg, 体脂肪率: {fat_percentage}%, 目的: {purpose}, 活動量: {activity}"
 
     # --- セグメントコントロール（ボタン型UI） ---
@@ -204,11 +204,17 @@ if check_password():
         
         if menu_input_type == "登録器具から選択":
             if raw_equipments:
-                # 🔍 選択された部位と一致、または target_part が Null/空文字の器具を抽出
-                filtered_equipments = [
-                    item["name"] for item in raw_equipments 
+                # 🔍 1. 選択された部位と一致、または target_part が Null/空文字の器具をオブジェクトのまま抽出
+                filtered_items = [
+                    item for item in raw_equipments 
                     if item.get("target_part") == part or item.get("target_part") is None or item.get("target_part") == ""
                 ]
+                
+                # 🔍 2. 指定条件でソート (第1優先: 部位が一致するものが上[Falseが先]、第2優先: 名称の昇順)
+                filtered_items.sort(key=lambda x: (x.get("target_part") != part, x["name"]))
+                
+                # 🔍 3. セレクトボックス表示用に名前のリストを展開
+                filtered_equipments = [item["name"] for item in filtered_items]
                 
                 if filtered_equipments:
                     menu = st.selectbox(f"種目名（{part}の対象器具・共通器具）", filtered_equipments, key="workout_menu_select")
@@ -235,6 +241,7 @@ if check_password():
                 else:
                     st.info(f"ℹ️ {part}に対応する器具が登録されていません。全器具から選択します。")
                     all_names = [item["name"] for item in raw_equipments]
+                    all_names.sort()  # デフォルトで昇順ソート
                     menu = st.selectbox("種目名（すべての器具）", all_names, key="workout_menu_select_fallback")
             else:
                 st.info("ℹ️ 登録されている器具がありません。「自由に入力」するか上のメニューから器具を登録してください。")
@@ -256,7 +263,6 @@ if check_password():
         
         if st.button("筋トレを記録＆送信", key="workout_save_btn"):
             if menu and details:
-                # 注: テーブルの列名「part」に合わせてデータを挿入
                 data = {"workout_date": str(w_date), "part": part, "menu_name": menu, "volume_details": details}
                 supabase.table("workout_logs").insert(data).execute()
                 st.success(f"💪 {menu} の記録をデータベースに保存しました！")
